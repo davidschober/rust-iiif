@@ -56,8 +56,8 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(|| async { "Rust IIIF Server is running" }))
-        .route("/iiif/3/{identifier}/info.json", get(get_info))
-        .route("/iiif/3/{identifier}/{region}/{size}/{rotation}/{quality_format}", get(get_image))
+        // Using {*path} to capture identifiers with slashes
+        .route("/iiif/3/{*full_path}", get(handle_iiif))
         .with_state(state);
 
     let victory_msg = format!("Listening on http://{}:{}", cfg.server.host, cfg.server.port);
@@ -70,9 +70,36 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-async fn get_info(
+async fn handle_iiif(
     State(state): State<Arc<AppState>>,
-    Path(identifier): Path<String>,
+    Path(full_path): Path<String>,
+) -> impl IntoResponse {
+    let segments: Vec<&str> = full_path.split('/').collect();
+
+    // 1. Check for info.json
+    if segments.last() == Some(&"info.json") {
+        let identifier = segments[..segments.len() - 1].join("/");
+        return get_info_logic(state, identifier).await.into_response();
+    }
+
+    // 2. Check for image request (identifier / region / size / rotation / quality_format)
+    if segments.len() >= 5 {
+        let len = segments.len();
+        let quality_format = segments[len - 1].to_string();
+        let rotation_str = segments[len - 2].to_string();
+        let size_str = segments[len - 3].to_string();
+        let region_str = segments[len - 4].to_string();
+        let identifier = segments[..len - 4].join("/");
+
+        return get_image_logic(state, identifier, region_str, size_str, rotation_str, quality_format).await.into_response();
+    }
+
+    (StatusCode::BAD_REQUEST, "Invalid IIIF request").into_response()
+}
+
+async fn get_info_logic(
+    state: Arc<AppState>,
+    identifier: String,
 ) -> impl IntoResponse {
     match state.resolver.resolve(&identifier).await {
         Some(path) => {
@@ -93,9 +120,13 @@ async fn get_info(
     }
 }
 
-async fn get_image(
-    State(state): State<Arc<AppState>>,
-    Path((identifier, region_str, size_str, rotation_str, quality_format)): Path<(String, String, String, String, String)>,
+async fn get_image_logic(
+    state: Arc<AppState>,
+    identifier: String,
+    region_str: String,
+    size_str: String,
+    rotation_str: String,
+    quality_format: String,
 ) -> impl IntoResponse {
     let parts: Vec<&str> = quality_format.split('.').collect();
     if parts.len() != 2 {
