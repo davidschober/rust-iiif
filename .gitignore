@@ -1,0 +1,8 @@
+/target
+/cache
+/images
+*.jpg
+*.pdf
+*.v
+*.tif
+.DS_Store

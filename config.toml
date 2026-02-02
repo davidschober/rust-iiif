@@ -1,0 +1,12 @@
+[server]
+port = 8080
+host = "0.0.0.0"
+
+[iiif]
+source_dir = "/Users/david/Desktop/images"
+base_url = "http://localhost:8080/iiif/3/"
+
+[cache]
+memory_limit = "512MB"
+disk_cache_dir = "./cache"
+disk_limit = "10GB"
