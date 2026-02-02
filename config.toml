@@ -10,3 +10,8 @@ base_url = "http://localhost:8080/iiif/3/"
 memory_limit = "512MB"
 disk_cache_dir = "./cache"
 disk_limit = "10GB"
+
+# Optional: Remote storage support (S3/HTTP)
+# [remote]
+# base_url = "https://archive.org/download/"
+# local_proxy_dir = "./remote_proxy"

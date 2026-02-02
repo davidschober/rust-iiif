@@ -1,6 +1,6 @@
 # Rust IIIF Server
 
-A high-performance IIIF Image API v3 server written in Rust, optimized for production use on a single VM. Inspired by `serverless-iiif` but ported to Rust and `libvips` for maximum efficiency.
+A high-performance IIIF Image API v3 server written in Rust, optimized foruse on a single VM. Inspired by `serverless-iiif` but ported to Rust and `libvips` for maximum efficiency.
 
 ## Features
 
@@ -8,6 +8,7 @@ A high-performance IIIF Image API v3 server written in Rust, optimized for produ
 - **Fast Image Processing**: Leverages `libvips` for low-latency, low-memory transformations.
 - **Supported Formats**: Pyramidal TIFF (optimized), TIFF, JPG, PNG, WebP.
 - **PDF Support**: Dynamically extracts pages from PDFs using `:page:N` in the identifier (e.g., `my-doc.pdf:page:0`).
+- **Remote Storage**: Supports fetching and caching images from S3-compatible or HTTP sources (like Petabox).
 - **Two-Level Caching**:
     - **L1 (In-Memory)**: Fast access to frequently used tiles (using `moka`).
     - **L2 (Disk)**: Persistent cache for generated tiles to survive restarts.
@@ -36,6 +37,11 @@ A high-performance IIIF Image API v3 server written in Rust, optimized for produ
    memory_limit = "512MB"   # Max RAM for tile cache
    disk_cache_dir = "./cache"
    disk_limit = "10GB"
+
+   # (Optional) Remote S3/HTTP storage
+   [remote]
+   base_url = "https://s3.amazonaws.com/my-bucket/"
+   local_proxy_dir = "./remote_proxy"
    ```
 3. **Run the server**:
    - On macOS (via Homebrew): Use the provided helper script:

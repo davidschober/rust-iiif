@@ -2,6 +2,7 @@ mod config;
 mod iiif;
 mod processor;
 mod cache;
+mod resolver;
 
 use crate::config::Config;
 use crate::iiif::parser;
@@ -9,6 +10,7 @@ use crate::iiif::types::*;
 use crate::iiif::info::ImageInfo;
 use crate::processor::ImageProcessor;
 use crate::cache::TileCache;
+use crate::resolver::Resolver;
 
 use axum::{
     extract::{Path, State},
@@ -26,6 +28,7 @@ struct AppState {
     config: Config,
     processor: ImageProcessor,
     cache: TileCache,
+    resolver: Resolver,
 }
 
 #[tokio::main]
@@ -40,11 +43,15 @@ async fn main() {
     let cfg = Config::load().expect("Failed to load configuration");
     
     std::fs::create_dir_all(&cfg.cache.disk_cache_dir).expect("Failed to create cache directory");
+    if let Some(remote) = &cfg.remote {
+        std::fs::create_dir_all(&remote.local_proxy_dir).expect("Failed to create remote proxy directory");
+    }
 
     let state = Arc::new(AppState {
         config: cfg.clone(),
         processor: ImageProcessor::new(),
         cache: TileCache::new(cfg.cache.disk_cache_dir.clone(), cfg.parse_memory_limit()),
+        resolver: Resolver::new(cfg.clone()),
     });
 
     let app = Router::new()
@@ -67,27 +74,22 @@ async fn get_info(
     State(state): State<Arc<AppState>>,
     Path(identifier): Path<String>,
 ) -> impl IntoResponse {
-    let base_id = if let Some((base, _)) = identifier.split_once(":page:") {
-        base
-    } else {
-        &identifier
-    };
-
-    let file_path = format!("{}/{}", state.config.iiif.source_dir, base_id);
-    if !std::path::Path::new(&file_path).exists() {
-        return (StatusCode::NOT_FOUND, "Image not found").into_response();
-    }
-
-    match state.processor.get_image_size(&file_path, &identifier) {
-        Ok((w, h)) => {
-            let id_url = format!("{}{}", state.config.iiif.base_url, identifier);
-            let info = ImageInfo::new(id_url, w as u32, h as u32);
-            (StatusCode::OK, Json(info)).into_response()
+    match state.resolver.resolve(&identifier).await {
+        Some(path) => {
+            let path_str = path.to_string_lossy();
+            match state.processor.get_image_size(&path_str, &identifier) {
+                Ok((w, h)) => {
+                    let id_url = format!("{}{}", state.config.iiif.base_url, identifier);
+                    let info = ImageInfo::new(id_url, w as u32, h as u32);
+                    (StatusCode::OK, Json(info)).into_response()
+                }
+                Err(e) => {
+                    tracing::error!("Failed to get image size: {:?}", e);
+                    (StatusCode::INTERNAL_SERVER_ERROR, "Failed to get image info").into_response()
+                }
+            }
         }
-        Err(e) => {
-            tracing::error!("Failed to get image size: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to get image info").into_response()
-        }
+        None => (StatusCode::NOT_FOUND, "Image not found").into_response(),
     }
 }
 
@@ -126,26 +128,21 @@ async fn get_image(
             return (StatusCode::OK, [("content-type", format!("image/{}", format_str))], cached_data).into_response();
         }
 
-        let base_id = if let Some((base, _)) = identifier.split_once(":page:") {
-            base
-        } else {
-            &identifier
-        };
-
-        let file_path = format!("{}/{}", state.config.iiif.source_dir, base_id);
-        if !std::path::Path::new(&file_path).exists() {
-             return (StatusCode::NOT_FOUND, "Image not found").into_response();
-        }
-
-        match state.processor.process_image(&file_path, &req) {
-            Ok(data) => {
-                state.cache.set(&cache_key, data.clone()).await;
-                (StatusCode::OK, [("content-type", format!("image/{}", format_str))], data).into_response()
+        match state.resolver.resolve(&identifier).await {
+            Some(path) => {
+                let path_str = path.to_string_lossy();
+                match state.processor.process_image(&path_str, &req) {
+                    Ok(data) => {
+                        state.cache.set(&cache_key, data.clone()).await;
+                        (StatusCode::OK, [("content-type", format!("image/{}", format_str))], data).into_response()
+                    }
+                    Err(e) => {
+                        tracing::error!("Image processing error: {:?}", e);
+                        (StatusCode::INTERNAL_SERVER_ERROR, "Image processing failed").into_response()
+                    }
+                }
             }
-            Err(e) => {
-                tracing::error!("Image processing error: {:?}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, "Image processing failed").into_response()
-            }
+            None => (StatusCode::NOT_FOUND, "Image not found").into_response(),
         }
     } else {
         (StatusCode::BAD_REQUEST, "Invalid IIIF parameters").into_response()

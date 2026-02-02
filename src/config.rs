@@ -5,6 +5,7 @@ pub struct Config {
     pub server: ServerConfig,
     pub iiif: IiifConfig,
     pub cache: CacheConfig,
+    pub remote: Option<RemoteConfig>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -25,6 +26,12 @@ pub struct CacheConfig {
     pub disk_cache_dir: String,
     #[allow(dead_code)]
     pub disk_limit: String, // e.g., "10GB"
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct RemoteConfig {
+    pub base_url: String, // e.g., "https://s3.amazonaws.com/my-bucket/"
+    pub local_proxy_dir: String, // where to save downloaded remote files
 }
 
 impl Config {
